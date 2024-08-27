@@ -2,13 +2,8 @@
 
 namespace Mcamara\LaravelLocalization;
 
-use Illuminate\Contracts\Config\Repository as ConfigRepository;
-use Illuminate\Contracts\Foundation\Application;
-use Illuminate\Contracts\Routing\UrlGenerator;
+use Illuminate\Config\Repository;
 use Illuminate\Contracts\Routing\UrlRoutable;
-use Illuminate\Contracts\Translation\Translator;
-use Illuminate\Http\Request;
-use Illuminate\Routing\Router;
 use Illuminate\Support\Str;
 use Illuminate\Support\Env;
 use Mcamara\LaravelLocalization\Exceptions\SupportedLocalesNotDefined;
@@ -24,14 +19,21 @@ class LaravelLocalization
     /**
      * Config repository.
      *
-     * @var \Illuminate\Contracts\Config\Repository
+     * @var \Illuminate\Config\Repository
      */
     protected $configRepository;
 
     /**
+     * Illuminate view Factory.
+     *
+     * @var \Illuminate\View\Factory
+     */
+    protected $view;
+
+    /**
      * Illuminate translator class.
      *
-     * @var \Illuminate\Contracts\Translation\Translator
+     * @var \Illuminate\Translation\Translator
      */
     protected $translator;
 
@@ -45,21 +47,21 @@ class LaravelLocalization
     /**
      * Illuminate request class.
      *
-     * @var \Illuminate\Http\Request
+     * @var \Illuminate\Routing\Request
      */
     protected $request;
 
     /**
      * Illuminate url class.
      *
-     * @var \Illuminate\Contracts\Routing\UrlGenerator
+     * @var \Illuminate\Routing\UrlGenerator
      */
     protected $url;
 
     /**
      * Illuminate request class.
      *
-     * @var \Illuminate\Contracts\Foundation\Application
+     * @var Illuminate\Foundation\Application
      */
     protected $app;
 
@@ -124,20 +126,16 @@ class LaravelLocalization
      *
      * @throws UnsupportedLocaleException
      */
-    public function __construct(
-        Application $app,
-        ConfigRepository $configRepository,
-        Translator $translator,
-        Router $router,
-        Request $request,
-        UrlGenerator $url
-    ) {
-        $this->app = $app;
-        $this->configRepository = $configRepository;
-        $this->translator = $translator;
-        $this->router = $router;
-        $this->request = $request;
-        $this->url = $url;
+    public function __construct()
+    {
+        $this->app = app();
+
+        $this->configRepository = $this->app['config'];
+        $this->view = $this->app['view'];
+        $this->translator = $this->app['translator'];
+        $this->router = $this->app['router'];
+        $this->request = $this->app['request'];
+        $this->url = $this->app['url'];
 
         // set default locale
         $this->defaultLocale = $this->configRepository->get('app.locale');
@@ -198,6 +196,60 @@ class LaravelLocalization
         // Regional locale such as de_DE, so formatLocalized works in Carbon
         $regional = $this->getCurrentLocaleRegional();
         $suffix = $this->configRepository->get('laravellocalization.utf8suffix');
+
+        if ($regional) {
+            setlocale(LC_TIME, $regional . $suffix);
+            setlocale(LC_MONETARY, $regional . $suffix);
+        }
+
+        return $this->getLocaleFromMapping($locale);
+    }
+
+    public function setDomainLocale($domain, $locale = null)
+    {
+        if (empty($locale) || !\is_string($locale)) {
+            // If the locale has not been passed through the function
+            // it tries to get it from the first segment of the url
+            $locale = $this->request->segment(1);
+
+            // If the locale is determined by env, use that
+            // Note that this is how per-locale route caching is performed.
+            if ( ! $locale) {
+                $locale = $this->getForcedLocale();
+            }
+        }
+
+        $locale = $this->getInversedLocaleFromMapping($locale);
+
+        if (!empty($this->supportedLocales[$locale])) {
+            $this->currentLocale = $locale;
+        } else {
+            // if the first segment/locale passed is not valid
+            // the system would ask which locale have to take
+            // it could be taken by the browser
+            // depending on your configuration
+
+            $locale = null;
+
+            // if we reached this point and hideDefaultLocaleInURL is true
+            // we have to assume we are routing to a defaultLocale route.
+            if ($this->hideDefaultLocaleInURL()) {
+                $this->currentLocale = $this->defaultLocale;
+            }
+            // but if hideDefaultLocaleInURL is false, we have
+            // to retrieve it from the browser...
+            else {
+                $this->currentLocale = $this->getCurrentLocale();
+            }
+        }
+
+        dd($this->currentLocale);
+        $this->app->setLocale($this->currentLocale);
+
+        // Regional locale such as de_DE, so formatLocalized works in Carbon
+        $regional = $this->getCurrentLocaleRegional();
+        $suffix = $this->configRepository->get('laravellocalization.utf8suffix');
+
         if ($regional) {
             setlocale(LC_TIME, $regional . $suffix);
             setlocale(LC_MONETARY, $regional . $suffix);
@@ -214,10 +266,10 @@ class LaravelLocalization
      * @return boolean Returns true if above requirement are met, otherwise false
      */
 
-     public function isHiddenDefault($locale)
-     {
-       return  ($this->getDefaultLocale() === $locale && $this->hideDefaultLocaleInURL());
-     }
+    public function isHiddenDefault($locale)
+    {
+        return  ($this->getDefaultLocale() === $locale && $this->hideDefaultLocaleInURL());
+    }
 
     /**
      * Set and return supported locales.
@@ -272,6 +324,9 @@ class LaravelLocalization
             $attributes = $this->extractAttributes($url, $locale);
         }
 
+        $urlQuery = parse_url($url, PHP_URL_QUERY);
+        $urlQuery = $urlQuery ? '?'.$urlQuery : '';
+
         if (empty($url)) {
             $url = $this->request->fullUrl();
             $urlQuery = parse_url($url, PHP_URL_QUERY);
@@ -281,9 +336,6 @@ class LaravelLocalization
                 return $this->getURLFromRouteNameTranslated($locale, $this->routeName, $attributes, $forceDefaultLocation) . $urlQuery;
             }
         } else {
-            $urlQuery = parse_url($url, PHP_URL_QUERY);
-            $urlQuery = $urlQuery ? '?'.$urlQuery : '';
-
             $url = $this->url->to($url);
         }
 
@@ -300,24 +352,25 @@ class LaravelLocalization
         if (!$parsed_url || empty($parsed_url['path'])) {
             $path = $parsed_url['path'] = '';
         } else {
-            $parsed_url['path'] = str_replace($base_path, '', '/'.ltrim($parsed_url['path'], '/'));
+            $parsed_url['path'] = str_replace($base_path, '', '/' . ltrim($parsed_url['path'], '/'));
             $path = $parsed_url['path'];
             foreach ($this->getSupportedLocales() as $localeCode => $lang) {
                 $localeCode = $this->getLocaleFromMapping($localeCode);
 
-                $parsed_url['path'] = preg_replace('%^/?'.$localeCode.'/%', '$1', $parsed_url['path']);
+                $parsed_url['path'] = preg_replace('%^/?' . $localeCode . '/%', '$1', $parsed_url['path']);
                 if ($parsed_url['path'] !== $path) {
                     $url_locale = $localeCode;
                     break;
                 }
 
-                $parsed_url['path'] = preg_replace('%^/?'.$localeCode.'$%', '$1', $parsed_url['path']);
+                $parsed_url['path'] = preg_replace('%^/?' . $localeCode . '$%', '$1', $parsed_url['path']);
                 if ($parsed_url['path'] !== $path) {
                     $url_locale = $localeCode;
                     break;
                 }
             }
         }
+
 
         $parsed_url['path'] = ltrim($parsed_url['path'], '/');
 
@@ -328,10 +381,15 @@ class LaravelLocalization
         $locale = $this->getLocaleFromMapping($locale);
 
         if (!empty($locale)) {
-            if ($forceDefaultLocation || $locale != $this->getDefaultLocale() || !$this->hideDefaultLocaleInURL()) {
-                $parsed_url['path'] = $locale.'/'.ltrim($parsed_url['path'], '/');
+            if (is_null($domainName = $this->getDomainByLocale($locale))) {
+                if ($forceDefaultLocation || $locale != $this->getDefaultLocale() || !$this->hideDefaultLocaleInURL()) {
+                    $parsed_url['path'] = $locale . '/' . ltrim($parsed_url['path'], '/');
+                }
+            } else {
+                $parsed_url['host'] = $domainName;
             }
         }
+
         $parsed_url['path'] = ltrim(ltrim($base_path, '/').'/'.$parsed_url['path'], '/');
 
         //Make sure that the pass path is returned with a leading slash only if it come in with one.
@@ -404,6 +462,51 @@ class LaravelLocalization
     public function getNonLocalizedURL($url = null)
     {
         return $this->getLocalizedURL(false, $url);
+    }
+
+    /**
+     * Return domain name by locale
+     *
+     * @param $locale
+     * @return array|mixed
+     */
+    public function getDomainByLocale($locale)
+    {
+        return $this->configRepository->get('laravellocalization.supportedLocales.' . $locale . '.domain');
+    }
+
+    /**
+     * Return locale by domain name
+     *
+     * @param null $domainName
+     */
+    public function getLocaleByDomain($domainName = null)
+    {
+        if (is_null($domainName)) {
+            $host = parse_url(\request()->root(), PHP_URL_HOST);
+        } else {
+            $host = parse_url($domainName, PHP_URL_HOST);
+        }
+
+        foreach ($this->configRepository->get('laravellocalization.supportedLocales') as $localeName => $locale) {
+            if (isset($locale['domain'])) {
+                if (stripos($host, $locale['domain']) !== false || $host == $locale['domain']) {
+                    return $localeName;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Return current domain name (hostname)
+     *
+     * @return array|false|int|string|null
+     */
+    public function getCurrentDomain()
+    {
+        return parse_url(\request()->root(), PHP_URL_HOST);
     }
 
     /**
@@ -537,9 +640,9 @@ class LaravelLocalization
             case 'Mong':
             case 'Tfng':
             case 'Thaa':
-            return 'rtl';
+                return 'rtl';
             default:
-            return 'ltr';
+                return 'ltr';
         }
     }
 
@@ -763,7 +866,7 @@ class LaravelLocalization
             $routeName = $this->getURLFromRouteNameTranslated($locale, $translatedRoute, $attributes);
 
             // We can ignore extra url parts and compare only their url_path (ignore arguments that are not attributes)
-            if (parse_url($this->getNonLocalizedURL($routeName), PHP_URL_PATH) == parse_url($this->getNonLocalizedURL(urldecode($url)), PHP_URL_PATH)) {
+            if (parse_url($this->getNonLocalizedURL($routeName), PHP_URL_PATH) == parse_url($this->getNonLocalizedURL($url), PHP_URL_PATH)) {
                 $this->cachedTranslatedRoutesByUrl[$locale][$url] = $translatedRoute;
 
                 return $translatedRoute;
@@ -788,7 +891,7 @@ class LaravelLocalization
     /**
      * Returns the config repository for this instance.
      *
-     * @return \Illuminate\Contracts\Config\Repository Configuration repository
+     * @return Repository Configuration repository
      */
     public function getConfigRepository()
     {
@@ -807,7 +910,7 @@ class LaravelLocalization
 
     public function hideUrlAndAcceptHeader()
     {
-      return $this->hideDefaultLocaleInURL() && $this->useAcceptLanguageHeader();
+        return $this->hideDefaultLocaleInURL() && $this->useAcceptLanguageHeader();
     }
 
     /**
@@ -1018,19 +1121,19 @@ class LaravelLocalization
     }
 
     /**
-    * Normalize attributes gotten from request parameters.
-    *
-    * @param      array  $attributes  The attributes
-    * @return     array  The normalized attributes
-    */
-     protected function normalizeAttributes($attributes)
-     {
-         if (array_key_exists('data', $attributes) && \is_array($attributes['data']) && ! \count($attributes['data'])) {
-             $attributes['data'] = null;
-             return $attributes;
-         }
-         return $attributes;
-     }
+     * Normalize attributes gotten from request parameters.
+     *
+     * @param      array  $attributes  The attributes
+     * @return     array  The normalized attributes
+     */
+    protected function normalizeAttributes($attributes)
+    {
+        if (array_key_exists('data', $attributes) && \is_array($attributes['data']) && ! \count($attributes['data'])) {
+            $attributes['data'] = null;
+            return $attributes;
+        }
+        return $attributes;
+    }
 
     /**
      * Returns the forced environment set route locale.

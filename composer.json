@@ -1,12 +1,12 @@
 {
-    "name": "mcamara/laravel-localization",
+    "name": "lease-auto/laravel-localization",
     "description": "Easy localization for Laravel",
     "keywords": [
         "localization",
         "laravel",
         "php"
     ],
-    "homepage": "https://github.com/mcamara/laravel-localization",
+    "homepage": "https://github.com/lease-auto/laravel-localization",
     "license": "MIT",
     "authors": [
         {
@@ -44,7 +44,5 @@
                 "LaravelLocalization": "Mcamara\\LaravelLocalization\\Facades\\LaravelLocalization"
             }
         }
-    },
-    "minimum-stability": "dev",
-    "prefer-stable": true
+    }
 }
