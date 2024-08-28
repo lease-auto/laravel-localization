@@ -340,14 +340,14 @@ class LaravelLocalization
         }
 
         $url = preg_replace('/'. preg_quote($urlQuery, '/') . '$/', '', $url);
-
-        if ($locale && $translatedRoute = $this->findTranslatedRouteByUrl($url, $attributes, $this->currentLocale)) {
-            return $this->getURLFromRouteNameTranslated($locale, $translatedRoute, $attributes, $forceDefaultLocation).$urlQuery;
-        }
-
         $base_path = $this->request->getBaseUrl();
         $parsed_url = parse_url($url);
         $url_locale = $this->getDefaultLocale();
+
+        if ($locale && $translatedRoute = $this->findTranslatedRouteByUrl($url, $attributes, $this->currentLocale)) {
+            $domain = $parsed_url['scheme'] . '://'. $this->getDomainByLocale($locale);
+            return $this->getURLFromRouteNameTranslated($locale, $translatedRoute, $attributes, $forceDefaultLocation, $domain).$urlQuery;
+        }
 
         if (!$parsed_url || empty($parsed_url['path'])) {
             $path = $parsed_url['path'] = '';
@@ -379,7 +379,6 @@ class LaravelLocalization
         }
 
         $locale = $this->getLocaleFromMapping($locale);
-
         if (!empty($locale)) {
             if (is_null($domainName = $this->getDomainByLocale($locale))) {
                 if ($forceDefaultLocation || $locale != $this->getDefaultLocale() || !$this->hideDefaultLocaleInURL()) {
@@ -399,6 +398,7 @@ class LaravelLocalization
         $parsed_url['path'] = rtrim($parsed_url['path'], '/');
 
         $url = $this->unparseUrl($parsed_url);
+
 
         if ($this->checkUrl($url)) {
             return $url.$urlQuery;
@@ -421,7 +421,7 @@ class LaravelLocalization
      *
      * @return string|false URL translated
      */
-    public function getURLFromRouteNameTranslated($locale, $transKeyName, $attributes = [], $forceDefaultLocation = false)
+    public function getURLFromRouteNameTranslated($locale, $transKeyName, $attributes = [], $forceDefaultLocation = false, $route = '')
     {
         if (!$this->checkLocaleInSupportedLocales($locale)) {
             throw new UnsupportedLocaleException('Locale \''.$locale.'\' is not in the list of supported locales.');
@@ -431,10 +431,8 @@ class LaravelLocalization
             $locale = $this->getDefaultLocale();
         }
 
-        $route = '';
-
         if ($forceDefaultLocation || !($locale === $this->defaultLocale && $this->hideDefaultLocaleInURL())) {
-            $route = '/'.$locale;
+//            $route = '/'.$locale;
         }
         if (\is_string($locale) && $this->translator->has($transKeyName, $locale)) {
             $translation = $this->translator->get($transKeyName, [], $locale);
@@ -678,6 +676,15 @@ class LaravelLocalization
         }
 
         if ($this->useAcceptLanguageHeader() && !$this->app->runningInConsole()) {
+
+            $currentDomain = request()->getHost();
+
+            foreach($this->getSupportedLocales() as $locale => $data) {
+                if($currentDomain === $data['domain']) {
+                    return $locale;
+                }
+            }
+
             $negotiator = new LanguageNegotiator($this->defaultLocale, $this->getSupportedLocales(), $this->request);
 
             return $negotiator->negotiateLanguage();
