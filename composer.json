@@ -1,6 +1,5 @@
 {
     "name": "lease-auto/laravel-localization",
-    "version": "1.0.0",
     "description": "Easy localization for Laravel",
     "keywords": [
         "localization",
