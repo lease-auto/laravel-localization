@@ -243,7 +243,6 @@ class LaravelLocalization
             }
         }
 
-        dd($this->currentLocale);
         $this->app->setLocale($this->currentLocale);
 
         // Regional locale such as de_DE, so formatLocalized works in Carbon
@@ -333,11 +332,15 @@ class LaravelLocalization
             $urlQuery = $urlQuery ? '?'.$urlQuery : '';
 
             if (!empty($this->routeName)) {
-                return $this->getURLFromRouteNameTranslated($locale, $this->routeName, $attributes, $forceDefaultLocation) . $urlQuery;
+                $parsed_url = parse_url($url);
+                $domain = $parsed_url['scheme'] . '://'. $this->getDomainByLocale($locale);
+
+                return $this->getURLFromRouteNameTranslated($locale, $this->routeName, $attributes, $forceDefaultLocation,$domain) . $urlQuery;
             }
         } else {
             $url = $this->url->to($url);
         }
+
 
         $url = preg_replace('/'. preg_quote($urlQuery, '/') . '$/', '', $url);
         $base_path = $this->request->getBaseUrl();
