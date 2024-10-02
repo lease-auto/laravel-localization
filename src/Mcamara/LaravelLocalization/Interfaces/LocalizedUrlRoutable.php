@@ -9,5 +9,5 @@ interface LocalizedUrlRoutable
      *
      * @return mixed
      */
-    public function getLocalizedRouteKey($locale);
+    public function getLocalizedRouteKey(string $locale);
 }
