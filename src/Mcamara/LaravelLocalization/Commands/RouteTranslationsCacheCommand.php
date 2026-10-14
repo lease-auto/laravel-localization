@@ -12,9 +12,15 @@ class RouteTranslationsCacheCommand extends RouteCacheCommand
     use TranslatedRouteCommandContext;
 
     /**
+     * The name and signature of the console command.
+     *
+     * Declared as a signature because Laravel 13's parent command defines one,
+     * which would otherwise take precedence over $name and register this
+     * command as "route:cache".
+     *
      * @var string
      */
-    protected $name = 'route:trans:cache';
+    protected $signature = 'route:trans:cache';
 
     /**
      * @var string
